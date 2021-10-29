@@ -16,17 +16,23 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
 	pb "go-grpc/pkg/gopher"
+	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
+	"strings"
 )
 
 const (
 	port		 = ":9000"
-	KuteGoAPIURL =  "https://kutego-api-xxxxx-ew.a.run.app"
+	GopherizeMeURL =  "https://gopherize.me/api/artwork/"
 )
 
 type Server struct {
@@ -34,7 +40,7 @@ type Server struct {
 }
 
 type Gopher struct {
-	URL string `json:"url"`
+	URL string `json:"categories[0].images[0].href"`
 }
 
 // serverCmd represents the server command
@@ -71,4 +77,57 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// serverCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+}
+
+func (s *Server) GetGopher(ctx context.Context, req *pb.GopherRequest) (*pb.GopherReply, error) {
+	res := &pb.GopherReply{}
+
+	// check request
+	if req == nil {
+		fmt.Println("request is nil")
+		return res, xerrors.Errorf("request is nil")
+	}
+
+	if req.Name == "" {
+		fmt.Println("name in request is empty")
+		return res,  xerrors.Errorf("name in request is empty")
+	}
+
+	log.Printf("Received: %v\n", req.GetName())
+
+	// call GopherizeMe API
+	response, err := http.Get(GopherizeMeURL)
+	if err != nil {
+		log.Fatalf("failed to call GopherizeMe API: %v", err)
+	}
+	defer response.Body.Close()
+
+	var p []byte
+
+	response.Body.Read(p)
+
+	fmt.Println(p)
+
+	if response.StatusCode == 200 {
+		body, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			log.Fatalf("failer to read response body: %v", err)
+		}
+
+		var data Gopher
+		err =json.Unmarshal(body, &data)
+		if err != nil {
+			log.Fatalf("failer to unmarshal JSON: %v", err)
+		}
+
+		var gophers strings.Builder
+
+		gophers.WriteString(data.URL + "\n")
+
+		res.Message = gophers.String()
+	} else {
+		log.Fatal("Can't get the gopher")
+	}
+
+	return res, nil
 }
